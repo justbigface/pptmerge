@@ -7,6 +7,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-EXPOSE 5001
+EXPOSE 8080
 
 CMD ["python", "app/ppt_merge_service.py"]
