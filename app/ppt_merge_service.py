@@ -1,5 +1,8 @@
 from flask import Flask, request, send_file, jsonify
 import io
+import os
+import tempfile
+import requests
 from pptx import Presentation
 from werkzeug.utils import secure_filename
 
@@ -30,20 +33,48 @@ def merge_presentations(streams):
             copy_slide(pres, slide, merged)
     return merged
 
-@app.route('/merge', methods=['POST'])
-def merge_ppts():
-    files = request.files.getlist('files')
-    if not files or len(files) < 2:
-        return jsonify({'error': '请上传至少两个pptx文件，且参数名为files'}), 400
+@app.route('/merge_pptx', methods=['POST'])
+def merge_pptx():
+    data = request.get_json()
+    urls = data.get('urls', [])
+    if not urls:
+        return jsonify({'error': 'No urls provided'}), 400
 
+    # 下载所有pptx到临时文件
+    temp_files = []
+    for url in urls:
+        try:
+            r = requests.get(url, stream=True, timeout=10)
+            r.raise_for_status()
+            tmpf = tempfile.NamedTemporaryFile(delete=False, suffix='.pptx')
+            for chunk in r.iter_content(chunk_size=8192):
+                tmpf.write(chunk)
+            tmpf.close()
+            temp_files.append(tmpf.name)
+        except Exception as e:
+            # 清理已下载的临时文件
+            for path in temp_files:
+                try:
+                    os.remove(path)
+                except:
+                    pass
+            return jsonify({'error': f'Failed downloading {url}: {str(e)}'}), 500
+
+    # 读取临时文件为流并合并
     input_streams = []
-    for file in files:
-        filename = secure_filename(file.filename)
-        if not filename.lower().endswith('.pptx'):
-            return jsonify({'error': f'文件 {filename} 不是pptx格式'}), 400
-        input_streams.append(io.BytesIO(file.read()))
+    for path in temp_files:
+        with open(path, 'rb') as f:
+            input_streams.append(io.BytesIO(f.read()))
 
     merged_ppt = merge_presentations(input_streams)
+
+    # 清理临时文件
+    for path in temp_files:
+        try:
+            os.remove(path)
+        except:
+            pass
+
     output_stream = io.BytesIO()
     merged_ppt.save(output_stream)
     output_stream.seek(0)
