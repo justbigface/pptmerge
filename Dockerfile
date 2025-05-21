@@ -5,8 +5,8 @@ WORKDIR /app
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 USER appuser
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt gunicorn
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt && pip install gunicorn
 
 COPY app ./app
 
@@ -16,4 +16,4 @@ EXPOSE 8080
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["gunicorn", "-b", "0.0.0.0:8080", "-w", "2", "--threads", "4", "ppt_merge_service:app"]
+CMD ["gunicorn", "-b", "0.0.0.0:8080", "-w", "2", "--threads", "4", "app.ppt_merge_service:app"]

@@ -54,8 +54,14 @@ python app/ppt_merge_service.py
 接口默认监听 8080 端口。
 ### 2. Docker部署
 
+使用提供的 Dockerfile 构建镜像并运行容器。
+
+```bash
 docker build -t ppt-merge-service .
 docker run -d -p 8080:8080 ppt-merge-service
+```
+
+这个 Dockerfile 使用 `python:3.11-slim` 镜像，直接以 root 用户安装依赖，避免了用户权限问题，适用于 Zeabur 等平台的一键构建部署。
 
 ### 3. API用法
 
