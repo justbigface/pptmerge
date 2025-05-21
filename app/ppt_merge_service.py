@@ -76,8 +76,15 @@ def merge_pptx():
         return jsonify({'error': 'Need at least two URLs'}), 400
 
     temp_paths = []
-    # 支持通过环境变量配置域名白名单
+    # 支持通过环境变量配置域名白名单和端口白名单，默认允许 justbigface.fun
     allowed_domains = [d.strip() for d in os.getenv('ALLOWED_HOSTS', '').split(',') if d.strip()]
+    if not allowed_domains:
+        allowed_domains = ['justbigface.fun']
+    allowed_ports_env = os.getenv('ALLOWED_PORTS', '')
+    if allowed_ports_env:
+        allowed_ports = [int(p.strip()) for p in allowed_ports_env.split(',') if p.strip().isdigit()]
+    else:
+        allowed_ports = [80, 443, 9000, 9001]
     max_size_mb = int(os.getenv('MAX_SIZE_MB', '30'))
     max_size_bytes = max_size_mb * 1024 * 1024
 
@@ -88,18 +95,19 @@ def merge_pptx():
             # 使用 requests.Session() 实现 HTTP keep-alive
             with requests.Session() as session:
                 # —— 下载全部 PPTX ——
-                def download_file(url, session, allowed_domains, max_size_bytes):
+                def download_file(url, session, allowed_domains, allowed_ports, max_size_bytes):
                     parsed_url = urllib.parse.urlparse(url)
                     # SSRF防护：仅允许http/https，白名单域名，端口限制
                     if parsed_url.scheme not in ['http', 'https']:
                         safe_url = urllib.parse.urlsplit(url)._replace(query="[REDACTED]").geturl()
                         app.logger.warning(f"Invalid URL scheme: {safe_url}")
                         return {'error': f'Invalid URL scheme'}
+                    # 域名白名单校验
                     if allowed_domains and parsed_url.hostname not in allowed_domains:
                         safe_url = urllib.parse.urlsplit(url)._replace(query="[REDACTED]").geturl()
                         app.logger.warning(f"Domain not in whitelist: {parsed_url.hostname} for URL {safe_url}")
                         return {'error': f'Domain not allowed: {parsed_url.hostname}'}
-                    allowed_ports = [80, 443]
+                    # 端口白名单校验
                     port = parsed_url.port or (443 if parsed_url.scheme == 'https' else 80)
                     if port not in allowed_ports:
                         safe_url = urllib.parse.urlsplit(url)._replace(query="[REDACTED]").geturl()
@@ -130,7 +138,7 @@ def merge_pptx():
                 # 并发度动态调整
                 max_workers = min(5, len(urls))
                 with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    future_to_url = {executor.submit(download_file, url, session, allowed_domains, max_size_bytes): url for url in urls}
+                    future_to_url = {executor.submit(download_file, url, session, allowed_domains, allowed_ports, max_size_bytes): url for url in urls}
                     for future in concurrent.futures.as_completed(future_to_url):
                         url = future_to_url[future]
                         try:
