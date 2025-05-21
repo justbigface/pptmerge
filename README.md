@@ -1,6 +1,47 @@
 # PPT Merge Service
 
-合并多个 PPTX 文件为一个。支持 HTTP 表单多文件上传，返回合并后的 PPT 文件。
+A simple Flask service to merge multiple PPTX files into one.
+
+## API
+
+### POST /merge_pptx
+
+Merges multiple PPTX files from provided URLs into a single PPTX file.
+
+**Request Body:**
+
+```json
+{
+  "urls": [
+    "url_to_pptx_file_1",
+    "url_to_pptx_file_2",
+    ...
+  ]
+}
+```
+
+**Response:**
+
+Returns the merged PPTX file as an attachment.
+
+**Error Responses:**
+
+- `400 Bad Request`: If no URLs are provided or URLs have invalid schemes/domains.
+- `500 Internal Server Error`: If an error occurs during downloading or merging.
+
+## 已知限制
+
+- 目前不支持所有 PowerPoint 特性，主要覆盖文本框、图片、图表、形状、超链接等常见元素。
+- 对下载文件大小有限制（默认为 30MB）。
+- 域名白名单功能尚未实现。
+
+## TODO
+
+- [ ] 实现域名白名单配置。
+- [ ] 增加更详细的错误日志和用户友好的错误信息。
+- [ ] 考虑增加对其他文件格式（如 PPT）的支持。
+- [ ] 优化大文件处理性能。
+- [ ] 添加单元测试。
 
 ## 运行方式
 
