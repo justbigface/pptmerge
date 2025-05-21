@@ -32,25 +32,23 @@ def _validate_url(url: str) -> None:
 
 
 def clone_slide(src_slide, dest_prs):
-    """按 shape 深拷贝 src_slide 到 dest_prs，并兼容关系复制，优先保持原始版式。"""
-    # 优先尝试使用源幻灯片的 layout 索引
-    try:
-        layout_index = list(src_slide.part.presentation.slide_layouts).index(src_slide.slide_layout)
-        layout = dest_prs.slide_layouts[layout_index]
-    except Exception:
-        # 若找不到则回退到 Blank
-        layout = dest_prs.slide_layouts[6] if len(dest_prs.slide_layouts) > 6 else dest_prs.slide_layouts[0]
-    new_slide = dest_prs.slides.add_slide(layout)
+    """按 shape 深拷贝 src_slide 到 dest_prs，并兼容关系复制，始终使用 Blank 版式，彻底清空默认占位框。"""
+    # 总是新建 Blank 版式
+    layout = dest_prs.slide_layouts[6] if len(dest_prs.slide_layouts) > 6 else dest_prs.slide_layouts[0]
+    dst_slide = dest_prs.slides.add_slide(layout)
+    # 立刻删除所有默认 shapes（包括隐藏占位框）
+    for ph in list(dst_slide.shapes):
+        dst_slide.shapes._spTree.remove(ph.element)
     # shape 级深拷贝，直接 append
     for shape in src_slide.shapes:
         new_el = copy.deepcopy(shape.element)
-        new_slide.shapes._spTree.append(new_el)
+        dst_slide.shapes._spTree.append(new_el)
     # 关系复制，兼容不同 python-pptx 版本
     for rel in src_slide.part.rels.values():
         # 只复制关键关系
         if rel.reltype not in (RT.IMAGE, RT.CHART, RT.MEDIA, RT.HYPERLINK):
             continue
-        rels = new_slide.part.rels
+        rels = dst_slide.part.rels
         if hasattr(rels, 'add_relationship'):
             try:
                 rels.add_relationship(rel.reltype, rel._target, rId=None, external=rel.is_external)
