@@ -10,11 +10,11 @@
 pip install -r requirements.txt
 python app/ppt_merge_service.py
 
-接口默认监听 5001 端口。
+接口默认监听 8080 端口。
 ### 2. Docker部署
 
 docker build -t ppt-merge-service .
-docker run -d -p 5001:5001 ppt-merge-service
+docker run -d -p 8080:8080 ppt-merge-service
 
 ### 3. API用法
 
@@ -23,7 +23,7 @@ docker run -d -p 5001:5001 ppt-merge-service
 返回：合并后的 merged.pptx
 
 curl调用示例：
-curl -F "files=@1.pptx" -F "files=@2.pptx" http://localhost:5001/merge --output merged.pptx
+curl -F "files=@1.pptx" -F "files=@2.pptx" http://localhost:8080/merge --output merged.pptx
 
 ## License
 MIT
