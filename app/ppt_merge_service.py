@@ -3,91 +3,94 @@ import io
 import os
 import tempfile
 import requests
+import copy
 from pptx import Presentation
-from werkzeug.utils import secure_filename
+from pptx.enum.shapes import MSO_SHAPE_TYPE
+from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 
 app = Flask(__name__)
 
-def copy_slide(source_presentation, slide, target_presentation):
-    # 复制幻灯片：保持布局一致，但更复杂内容的复制需要深入shape分析
-    slide_layout = target_presentation.slide_layouts[0]
-    new_slide = target_presentation.slides.add_slide(slide_layout)
-    for shape in slide.shapes:
-        if shape.shape_type == 1:  # Placeholder or TextBox
-            txBox = new_slide.shapes.add_textbox(shape.left, shape.top, shape.width, shape.height)
-            txBox.text = shape.text
-        elif shape.shape_type == 13:  # Picture
-            image_stream = shape.image.blob
-            new_slide.shapes.add_picture(io.BytesIO(image_stream), shape.left, shape.top, shape.width, shape.height)
-        # 如果需要支持更多shape类型，请扩展此处
+
+def clone_slide(source_slide, target_prs):
+    """Deep‑clone *source_slide* into *target_prs*, preserving shapes, text,
+    images, charts and hyperlinks.
+    """
+    # choose a blank layout in the target presentation
+    blank_layout = target_prs.slide_layouts[6] if len(target_prs.slide_layouts) > 6 else target_prs.slide_layouts[0]
+    new_slide = target_prs.slides.add_slide(blank_layout)
+
+    # ---clone the XML of every shape---
+    for shape in source_slide.shapes:
+        new_el = copy.deepcopy(shape.element)
+        new_slide.shapes._spTree.insert_element_before(new_el, 'p:extLst')
+
+    # ---clone relationships so pictures / charts don’t break---
+    for rel in source_slide.part.rels:
+        if rel.reltype in (RT.IMAGE, RT.CHART, RT.MEDIA, RT.HYPERLINK):
+            new_slide.part.rels.add_rel(rel.reltype, rel._target, rel.rId)
+
 
 def merge_presentations(streams):
+    """Return a *Presentation* obtained by concatenating all slides of the
+    PPTX *streams* (iterable of BytesIO)."""
     merged = Presentation()
-    # 清除默认第一页空白
-    if len(merged.slides) > 0:
-        sldIdLst = merged.slides._sldIdLst
-        sldIdLst.remove(sldIdLst[0])
+
+    # remove the default blank slide the template comes with
+    merged.slides._sldIdLst.remove(merged.slides._sldIdLst[0])
+
     for stream in streams:
-        pres = Presentation(stream)
-        for slide in pres.slides:
-            copy_slide(pres, slide, merged)
+        prs = Presentation(stream)
+        for slide in prs.slides:
+            clone_slide(slide, merged)
     return merged
+
 
 @app.route('/merge_pptx', methods=['POST'])
 def merge_pptx():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     urls = data.get('urls', [])
     if not urls:
         return jsonify({'error': 'No urls provided'}), 400
 
-    # 下载所有pptx到临时文件
-    temp_files = []
-    for url in urls:
-        try:
-            r = requests.get(url, stream=True, timeout=10)
-            r.raise_for_status()
-            tmpf = tempfile.NamedTemporaryFile(delete=False, suffix='.pptx')
-            for chunk in r.iter_content(chunk_size=8192):
-                tmpf.write(chunk)
-            tmpf.close()
-            temp_files.append(tmpf.name)
-        except Exception as e:
-            # 清理已下载的临时文件
-            for path in temp_files:
-                try:
-                    os.remove(path)
-                except:
-                    pass
-            return jsonify({'error': f'Failed downloading {url}: {str(e)}'}), 500
+    temp_paths = []
+    try:
+        # ---download all PPTX files---
+        for url in urls:
+            resp = requests.get(url, stream=True, timeout=20)
+            resp.raise_for_status()
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pptx')
+            for chunk in resp.iter_content(8192):
+                tmp.write(chunk)
+            tmp.close()
+            temp_paths.append(tmp.name)
 
-    # 读取临时文件为流并合并
-    input_streams = []
-    for path in temp_files:
-        with open(path, 'rb') as f:
-            input_streams.append(io.BytesIO(f.read()))
+        # ---open streams & merge---
+        streams = [open(p, 'rb') for p in temp_paths]
+        merged_prs = merge_presentations(streams)
 
-    merged_ppt = merge_presentations(input_streams)
+        out = io.BytesIO()
+        merged_prs.save(out)
+        out.seek(0)
+        return send_file(
+            out,
+            as_attachment=True,
+            download_name='merged.pptx',
+            mimetype='application/vnd.openxmlformats-officedocument.presentationml.presentation'
+        )
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        for p in temp_paths:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
 
-    # 清理临时文件
-    for path in temp_files:
-        try:
-            os.remove(path)
-        except:
-            pass
-
-    output_stream = io.BytesIO()
-    merged_ppt.save(output_stream)
-    output_stream.seek(0)
-    return send_file(
-        output_stream,
-        as_attachment=True,
-        download_name='merged.pptx',
-        mimetype='application/vnd.openxmlformats-officedocument.presentationml.presentation'
-    )
 
 @app.route('/')
-def hello():
-    return "PPT Merge Service is running!"
+def index():
+    return 'PPT Merge Service is running!'
+
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080 )
+    app.run(host='0.0.0.0', port=8080)
