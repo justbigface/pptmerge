@@ -30,22 +30,39 @@ def _validate_url(url: str) -> None:
     if port not in ALLOWED_PORTS:
         raise ValueError(f"Port not allowed: {port} for URL {url}")
 
+
 def clone_slide(src_slide, dest_prs):
-    """Clone *src_slide* into *dest_prs* preserving shapes and media."""
+    """按 shape 深拷贝 src_slide 到 dest_prs，并兼容关系复制。"""
     blank_layout = dest_prs.slide_layouts[6] if len(dest_prs.slide_layouts) > 6 else dest_prs.slide_layouts[0]
     new_slide = dest_prs.slides.add_slide(blank_layout)
+    # shape 级深拷贝
     for shape in src_slide.shapes:
         new_el = copy.deepcopy(shape.element)
-        new_slide.shapes._spTree.append(new_el)
-    for rId, rel in src_slide.part.rels.items():
+        # 尽量插入到 extLst 前，若无则直接 append
         try:
-            new_slide.part.rels.add_relationship(rel.reltype, rel._target, is_external=rel.is_external)
+            new_slide.shapes._spTree.insert_element_before(new_el, 'p:extLst')
         except Exception:
-            new_slide.part.rels.add_relationship(rel.reltype, rel._target, is_external=rel.is_external)
+            new_slide.shapes._spTree.append(new_el)
+    # 关系复制，兼容不同 python-pptx 版本
+    for rel in src_slide.part.rels.values():
+        # 只复制关键关系
+        if rel.reltype not in (RT.IMAGE, RT.CHART, RT.MEDIA, RT.HYPERLINK):
+            continue
+        rels = new_slide.part.rels
+        if hasattr(rels, 'add_relationship'):
+            try:
+                rels.add_relationship(rel.reltype, rel._target, rId=None, external=rel.is_external)
+            except TypeError:
+                rels.add_relationship(rel.reltype, rel._target, None, rel.is_external)
+        elif hasattr(rels, 'add_rel'):
+            rels.add_rel(rel.reltype, rel._target, rel.is_external)
+
 
 def merge_presentations(streams):
+    """合并多个 Presentation 流，返回新 Presentation。"""
     merged = Presentation()
-    if len(merged.slides) == 1 and len(merged.slides[0].shapes._spTree) <= 1:
+    # 移除初始空白页（如有）
+    if merged.slides:
         merged.slides._sldIdLst.remove(merged.slides._sldIdLst[0])
     for s in streams:
         prs = Presentation(s)
